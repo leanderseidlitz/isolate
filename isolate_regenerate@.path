@@ -1,0 +1,9 @@
+[Unit]
+Description=Trigger regen of isolate/%I when used clones change
+
+[Path]
+PathModified=/isolate/.signal-%i
+Unit=isolate_regenerate@%i.service
+
+[Install]
+WantedBy=multi-user.target

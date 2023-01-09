@@ -1,0 +1,403 @@
+#!/bin/bash
+
+set -euo pipefail
+
+RUNDIR="$(dirname "$(realpath "$0")")"
+source "$RUNDIR/common.sh"
+
+print_usage_and_exit() {
+	echo "spawn:                        $0 [-e engine] [-t templatedir] [-1] [-2] [-n] [-p pwd] [-d dir_host:target_ctr] [command] [args] ..."
+	echo "spawn:                        $0 [-e engine] [-z zfs_template] [-1] [-2] [-n] [-p pwd] [-d dir_host:target_ctr] [command] [args] ..."
+	echo "refresh available zfs clones: $0 [-r template] [-f] [-s] [num_should_avail]"
+	echo "  [!] refresh ALWAYS uses the latest snapshot on the dataset"
+	echo ""
+	echo "OPTIONS"
+	echo "         -e: engine: one of {bwrap, chroot, lxc}, defaults to bwrap"
+	echo "         -d: dirs to mount into the sandbox, mounts dir_host to target_ctr in the container"
+	echo "         -p: pwd: switch to this directory on spawn. Defaults to /"
+	echo "         -1: bind X11 socket into guest"
+	echo "         -2: bind Pulseaudio socket into guest"
+	echo "         -n: share host network"
+	echo "         -x: trace"
+	echo "         -f: regenerate ALL templates of given zfs template"
+	echo "         -s: skip generating new clones"
+	echo ""
+	echo "  add all users that should be able to use zfs features to the \`isolate' group"
+	echo ""
+	echo "ENVIRONMENT VARIABLES"
+	echo "   PRE_SPAWN_HOOK: command that is run before [command args] are run in the isolated environment"
+	echo "                   \$ROOTFS references the root of the isolated environment to be started"
+	echo "   POST_SPAWN_HOOK: command that is run after [command args] has completed in the isolated environment"
+	echo "                   \$ROOTFS references the root of the isolated environment to be started"
+	echo "   DISABLE_SECCOMP_WRAPPER: disable the bwrap seccomp wrapper that prevents IOCTL to host"
+	echo ""
+	echo "SUPPORTED BY ENGINE"
+	echo "  | engine | cmd+args | dirs | pwd | X11 | Pulseaudio |"
+	echo "  |--------+----------+------+-----+-----+------------|"
+	echo "  | chroot | X        |      |     |     |            |"
+	echo "  | bwrap  | X        | X    | X   | X   | X          |"
+	echo "  | lxc    | X        | X    |     |     |            |"
+	exit 0
+}
+
+orig_args=( "$@" )
+dir_mounts=( )
+while getopts "e:p:d:xt:hnz:r:fs12" o; do
+	case "$o" in
+		e)
+			ENGINE="$OPTARG"
+			;;
+		p)
+			workdir="$(realpath "$OPTARG")"
+			;;
+	    d)
+			dir_mounts+=( "$OPTARG" )
+			;;
+		x)
+			set -x
+			;;
+		1)
+			X11="yes"
+			;;
+		2)
+			PULSE="yes"
+			;;
+		t)
+			template="$OPTARG"
+			;;
+		n)
+			share_net="yes"
+			;;
+		z)
+			getent group isolate | grep -q "\b${USER}\b" 1>/dev/null || die "user not in \`isolate' group, cannot use zfs features"
+			zfs_run="yes"
+			zfs_template="$OPTARG"
+			;;
+		r)
+			getent group isolate 1>/dev/null || die "cannot function without \`isolate' group"
+			do_refresh_template="yes"
+			zfs_template="$OPTARG"
+			;;
+		f)
+			FORCEREGENALLZFS="yes"
+			;;
+		s)
+			SKIPGENNEWZFS="yes"
+			;;
+		h)
+			print_usage_and_exit
+			;;
+	    *)
+			;;
+	esac
+done
+shift $((OPTIND-1))
+
+check_lockfile_setup() {
+	touch "$1" || die "run as root for the first run"
+	if (( UID == 0 )); then
+		chown "$USER":isolate "$1"
+		chmod 660 "$1"
+	fi
+}
+
+# clean up used zfs clones of $1 and make $2 clones available
+refresh_zfs() {
+	local zfs_template snapshot
+	zfs_template="$1"
+	zfs list "$zfs_template" 1>/dev/null || die "invalid zfs template $zfs_template"
+	snapshot="$(zfs list -t snapshot "$zfs_template" -S creation -H -o name | head -n 1)"
+	
+	local num_should_avail
+	[[ -z "${2:-}" ]] && [[ -z "${SKIPGENNEWZFS:-}" ]] && die "num_should_avail missing"
+	
+	local USEDFILE TEMPLATE_MOUNTPOINT FREEFILE ERRORFILE SIGNALFILE LOCKFILE
+	TEMPLATE_MOUNTPOINT="$(findmnt -d backward -f -n -oTARGET "$zfs_template")"
+	USEDFILE="$(dirname "$TEMPLATE_MOUNTPOINT")/$(basename "$zfs_template")_used"
+	[[ -f "$USEDFILE" ]] || touch "$USEDFILE"
+	chown root:isolate "$USEDFILE" && chmod 660 "$USEDFILE"
+	FREEFILE="$(dirname "$TEMPLATE_MOUNTPOINT")/$(basename "$zfs_template")_fresh"
+	[[ -f "$FREEFILE" ]] || touch "$FREEFILE"
+	chown root:isolate "$FREEFILE" && chmod 660 "$FREEFILE"
+	ERRORFILE="$(dirname "$TEMPLATE_MOUNTPOINT")/.error-destroy-$(basename "$zfs_template")"
+	SIGNALFILE="$(dirname "$TEMPLATE_MOUNTPOINT")/.signal-$(basename "$zfs_template")"
+	if [[ ! -f "$SIGNALFILE" ]]; then
+		touch "$SIGNALFILE"
+		chmod 660 "$SIGNALFILE"
+		chown root:isolate "$SIGNALFILE"
+	fi
+	LOCKFILE="$(dirname "$TEMPLATE_MOUNTPOINT")/.$(basename "$zfs_template").lock"
+	check_lockfile_setup "$LOCKFILE"
+
+	(
+		flock -x -n 11 || die "template mgmt lock unavailable"
+
+		if [[ -n "${FORCEREGENALLZFS:-}" ]]; then
+			eattention "REGENERATING ALL TEMPLATES"
+			cat "$FREEFILE" >> "$USEDFILE"
+			truncate --size 0 "$FREEFILE"
+		fi
+
+		einfo "reading used templates from ${USEDFILE}"
+		tmpfile="$(mktemp /tmp/isolate_usedXXXXXX)"
+		while read -r used; do
+			einfo "cleaning used template [$used]"
+			if [[ ! -f "/tmp/isolate_$(basename "$used")" ]] || ! ps -p "$(cat "/tmp/isolate_$(basename "$used")")" > /dev/null; then
+				# if the dataset does not exist, forget that we know it
+				zfs list "$used" > /dev/null || continue
+				# if it exists but fails to destroy, it might be in use. Try again later
+				zfs destroy "$used" || (eattention "error destroying $used"; touch "$ERRORFILE"; echo "$used" >> "$tmpfile")
+			else
+				eattention "dataset $used is in use, skipping destroy"
+				echo "$used" >> "$tmpfile"
+			fi
+		done < "$USEDFILE"
+		truncate --size 0 "$USEDFILE"
+		# remember the ones we still have to recycle
+		cat "$tmpfile" > "$USEDFILE"
+		rm -f "$tmpfile"
+
+		# if usedfile is empty we successfully cleaned up
+		[[ ! -s "$USEDFILE" ]] && rm -f "$ERRORFILE"
+
+		if [[ -n "${SKIPGENNEWZFS:-}" ]]; then
+			einfo "skipping generation of new clones"
+			return
+		fi
+		
+		num_should_avail="$2"
+		# idiot proof the whole thing
+		[[ "$num_should_avail" =~ ^[0-9]+$ ]] || die "num_should_avail should be a num"
+		(( 10#$num_should_avail < 0 )) && die "num_should_avail cannot be negative"
+		(( 10#$num_should_avail > 50 )) && die "num_should_avail is a bit too large"
+		
+		if (( 10#$(wc -l < "$FREEFILE") < 10#$num_should_avail )); then
+			num_to_create=$(( 10#$num_should_avail - 10#$(wc -l < "$FREEFILE") ))
+			for i in $(seq 1 "$num_to_create"); do
+				fresh_template="${zfs_template}_$(date "+%s%N")"
+				einfo "creating clone ${fresh_template}, adding to freshlist"
+				zfs clone "${snapshot}" "$fresh_template"
+				echo "$fresh_template" >> "$FREEFILE"
+			done
+		else
+			einfo "enough fresh templates ($(wc -l < "$FREEFILE")) are available"
+		fi
+	) 11>"$LOCKFILE"
+}
+
+# get a fresh zfs template for the template in $1, respawn the script and use as template
+consume_fresh_zfs_template_respawn() {
+	local zfs_template
+	zfs_template="$1"
+	zfs list "$zfs_template" 1>/dev/null || die "invalid zfs template $zfs_template"
+	
+	local USEDFILE TEMPLATE_MOUNTPOINT FREEFILE SIGNALFILE LOCKFILE
+	TEMPLATE_MOUNTPOINT="$(findmnt -d backward -f -n -oTARGET "$zfs_template")"
+	USEDFILE="$(dirname "$TEMPLATE_MOUNTPOINT")/$(basename "$zfs_template")_used"
+	FREEFILE="$(dirname "$TEMPLATE_MOUNTPOINT")/$(basename "$zfs_template")_fresh"
+	SIGNALFILE="$(dirname "$TEMPLATE_MOUNTPOINT")/.signal-$(basename "$zfs_template")"
+	LOCKFILE="$(dirname "$TEMPLATE_MOUNTPOINT")/.$(basename "$zfs_template").lock"
+	check_lockfile_setup "$LOCKFILE"
+
+	exec 11>"$LOCKFILE"
+	flock -x -n 11 || die "template mgmt lock unavailable"
+	(( 10#$(wc -l < "$FREEFILE") <= 0 )) && ( touch "$SIGNALFILE"; die "no free template clones available, spawn new clones before continuing" )
+	
+	to_use="$(head -n 1 "$FREEFILE")"
+	echo "$to_use" >> "$USEDFILE"
+
+	einfo "using ${to_use} and removing from freefile"
+	tmpfile="$(mktemp /tmp/sedXXXXXX)"
+	sed '1d' < "$FREEFILE" > "$tmpfile"
+	cat "$tmpfile" > "$FREEFILE"
+	rm "$tmpfile"
+
+	flock -u 11
+	exec 11<&- 
+	
+	to_use_mountpoint="$(findmnt -d backward -f -n -oTARGET "$to_use")"
+	[[ -z "${to_use_mountpoint}" ]] && die "template $to_use seems to be non-existent"
+	export ISOLATE_ZFSPREPAREDONE="yes"
+	export ISOLATE_ZFSMOUNTPOINT="$to_use_mountpoint"
+	export ISOLATE_SIGNALFILE="$SIGNALFILE"
+	# respawn on that template
+    "$0" "${orig_args[@]}"
+}
+
+
+handle_pre_spawn_hook() {
+	if [[ -n "${PRE_SPAWN_HOOK:-}" ]]; then
+		einfo "Executing pre spawn hook"
+		export ROOTFS="$1"
+		"$PRE_SPAWN_HOOK"
+	fi
+}
+handle_post_spawn_hook() {
+	if [[ -n "${POST_SPAWN_HOOK:-}" ]]; then
+		einfo "Executing post spawn hook"
+		export ROOTFS="$1"
+		"$POST_SPAWN_HOOK"
+	fi
+}
+
+# chroot into the given template directory but do no further isolation
+# $1 is the root, the rest of the args the command
+lets_go_chroot() {
+    eattention "YOU ARE AWARE THAT THIS MODE DOES NOT ISOLATE"
+	local rootfs
+	rootfs="$1"
+	einfo "CHROOTING INTO $rootfs"
+
+    handle_pre_spawn_hook "$rootfs"
+	chroot "$rootfs" "${@:2}" || ISOLATE_EXITCODE="$?"
+	handle_post_spawn_hook "$rootfs"
+
+	return "${ISOLATE_EXITCODE:-0}"
+}
+
+# spawn the sandbox on the given template directory
+# $1 is the root, the rest of the args the command
+lets_go_bwrap() {
+	local rootfs
+	rootfs="$1"
+	[[ -z "${*:2}" ]] && print_usage_and_exit
+    einfo "ISOLATING ${*:2} in root $rootfs"
+	# as long as we use our seccomp wrapper we dont need --new-session
+ 	cmd=( "bwrap" "--setenv" "PATH" "/usr/local/bin:/usr/bin:/bin" "--hostname" "$(basename "$rootfs")" "--cap-drop" "ALL" "--die-with-parent" "--uid" "0" "--gid" "0" "--unshare-ipc" "--unshare-pid" "--unshare-uts" "--unshare-cgroup" "--ro-bind" "$rootfs" "/" "--dev" "/dev" "--proc" "/proc" "--tmpfs" "/tmp" "--tmpfs" "/home" "--chdir" "/" )
+	if [[ -n "${share_net:-}" ]]; then
+		einfo "ENABLING NETWORK SUPPORT"
+		cmd+=( "--share-net" )
+	else
+		cmd+=( "--unshare-net" )
+	fi
+	if [[ -n "${X11:-}" ]]; then
+		eattention "ALLOWING CONTAINER TO CONNECT TO X11"
+		xhost +local:
+		einfo "ENABLING X11 SUPPORT"
+		cmd+=( "--ro-bind" "/tmp/.X11-unix" "/tmp/.X11-unix" )
+	fi
+	if [[ -n "${PULSE:-}" ]]; then
+		eattention "ALLOWING CONTAINER TO CONNECT TO PULSEAUDIO"
+		einfo "setting PULSE_SERVER=unix:/pulse-guest.socket"
+		cmd+=( "--setenv" "PULSE_SERVER" "unix:/pulse-guest.socket" )
+		cmd+=( "--bind" "/tmp/pulse-socket" "/pulse-guest.socket" )
+	fi
+	for dir_mount in "${dir_mounts[@]}"; do
+		IFS=':'; from_to=($dir_mount); unset IFS;
+		from="${from_to[0]}"
+		[[ -z "$from" ]] && dir "-d ${dir_mount} is invalid"
+		to="${from_to[1]}"
+		[[ -z "$to" ]] && dir "-d ${dir_mount} is invalid"
+		einfo "Mounting $(realpath "$from") -> $(realpath "$to")"
+		cmd+=( "--dir" "$(realpath "$to")" )
+		cmd+=( "--bind" "$(realpath "$from")" "$(realpath "$to")" )
+	done
+	einfo "Workdir is ${workdir:-/}"
+	cmd+=( "env" "-C" "${workdir:-/}" )
+    [[ -n "${DISABLE_SECCOMP_WRAPPER:-}" ]] && eattention "Disabling seccomp wrapper. IOCTL to host possible [!]"
+    [[ -z "${DISABLE_SECCOMP_WRAPPER:-}" ]] && cmd+=( "seccomp_wrapper" )
+	cmd+=( "${@:2}" )
+
+    handle_pre_spawn_hook "$rootfs"
+	"${cmd[@]}" || ISOLATE_EXITCODE="$?"
+	handle_post_spawn_hook "$rootfs"
+
+	return "${ISOLATE_EXITCODE:-0}"
+}
+
+# spawn the sandbox on the given template directory
+# $1 is the root, the rest of the args the command
+lets_go_lxc() {
+	local rootfs
+	rootfs="$1"
+	[[ -z "${*:2}" ]] && print_usage_and_exit
+    einfo "ISOLATING ${*:2} in root $rootfs"
+
+	CTR_NAME="$(basename "$rootfs")"
+	CTR_NAME="${CTR_NAME//[^[:alnum:]]/-}"
+	LXC_CONF_TARGET="/var/lib/lxc/${CTR_NAME}/config"
+	mkdir -p "$(dirname "$LXC_CONF_TARGET")"
+
+	einfo "DEFINING container $CTR_NAME"
+	cat <<-EOF > "$LXC_CONF_TARGET"
+		lxc.include = /usr/share/lxc/config/common.conf
+		lxc.include = /usr/share/lxc/config/userns.conf
+		#lxc.apparmor.profile = generated
+		#lxc.apparmor.allow_nesting = 1
+		# deny keyboard/console access
+		lxc.cgroup.devices.deny = c 5:0 rw
+		lxc.cgroup.devices.deny = c 5:1 rw
+		lxc.idmap = u 0 0 131072
+		lxc.idmap = g 0 0 131072
+		lxc.rootfs.path = $rootfs
+		lxc.mount.entry = none tmp tmpfs mode=1777,size=256M 0 0
+		lxc.uts.name = $CTR_NAME
+		lxc.cgroup.memory.memsw.limit_in_bytes = $(( $(free | awk '/^Mem:/{print $2}') / 100 ))
+		lxc.cgroup.memory.limit_in_bytes = $(( $(free | awk '/^Mem:/{print $2}') / 100 ))
+EOF
+	for dir_mount in "${dir_mounts[@]}"; do
+		IFS=':'; from_to=($dir_mount); unset IFS;
+		from="${from_to[0]}"
+		[[ -z "$from" ]] && dir "-d ${dir_mount} is invalid"
+		to="${from_to[1]}"
+		[[ -z "$to" ]] && dir "-d ${dir_mount} is invalid"
+		einfo "Mounting $(realpath "$from") -> $(realpath "$to")"
+		echo "lxc.mount.entry = $(realpath "$from") $(realpath "$to") none bind,create=dir 0 0" >> "$LXC_CONF_TARGET"
+	done
+
+	handle_pre_spawn_hook "$rootfs"
+	einfo "STARTING container $CTR_NAME"
+	lxc-start "$CTR_NAME"
+	einfo "ATTACHING to container $CTR_NAME"
+	lxc-attach "$CTR_NAME" -- "${@:2}" || ISOLATE_EXITCODE="$?"
+	einfo "STOPPING container $CTR_NAME, timeout 3s"
+	lxc-stop -t 3 "$CTR_NAME"
+	handle_post_spawn_hook "$rootfs"
+	rm -rf "$(dirname "$LXC_CONF_TARGET")"
+
+	return "${ISOLATE_EXITCODE:-0}"
+}
+
+################################################################################
+##################################### MAIN #####################################
+################################################################################
+
+[[ -z "${zfs_template:-}" ]] && [[ -z "${template:-}" ]] && die "missing template or zfs template"
+
+if [[ -n "${do_refresh_template:-}" ]] && [[ -z "${ISOLATE_ZFSPREPAREDONE:-}" ]]; then
+	(( UID == 0 )) || die "zfs template refresh must be run as root"
+	refresh_zfs "$zfs_template" "$@"
+else
+	rootfs="${template:-}"
+
+	## consuming a zfs template is a two stage process because of locking
+	## this is executed in the second call from consume_fresh_zfs_template_respawn
+	[[ -n "${ISOLATE_ZFSMOUNTPOINT:-}" ]] && rootfs="$ISOLATE_ZFSMOUNTPOINT"
+	## the second call skipps over this
+	if [[ -n "${zfs_run:-}" ]] && [[ -z "${ISOLATE_ZFSPREPAREDONE:-}" ]]; then
+		consume_fresh_zfs_template_respawn "$zfs_template" || ISOLATE_EXITCODE="$?"
+		# if we end up here we already executed in isolation when we called ourselves in consume_fresh_zfs_template_respawn
+		exit "${ISOLATE_EXITCODE:-0}"
+	fi
+
+	einfo "Using engine ${ENGINE:-bwrap}, wroom wroom"
+	PIDFILE="/tmp/isolate_$(basename "$rootfs")"
+	echo "$$" > "$PIDFILE"
+	case "${ENGINE:-bwrap}" in
+		bwrap)
+			lets_go_bwrap "$rootfs" "$@" || ISOLATE_EXITCODE="$?"
+			;;
+		lxc)
+			(( UID == 0 )) || die "lxc engine must be run as root"
+			lets_go_lxc "$rootfs" "$@" || ISOLATE_EXITCODE="$?"
+			;;
+		chroot)
+			lets_go_chroot "$rootfs" "$@" || ISOLATE_EXITCODE="$?"
+			;;
+	esac
+	rm -f "$PIDFILE"
+	[[ -z "${ISOLATE_SIGNALFILE:-}" ]] || touch "$ISOLATE_SIGNALFILE"
+
+	einfo "ISOLATE exiting, thanks for playing"
+	exit "${ISOLATE_EXITCODE:-0}"
+fi
