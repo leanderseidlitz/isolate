@@ -1,3 +1,0 @@
-install libseccomp static libs (static-libs USE flag)
-
-gcc -static -o seccomp_wrapper seccomp_wrapper.c /usr/lib64/libseccomp.a

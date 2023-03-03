@@ -1,24 +1,37 @@
-* ISOLATE
-This project isolates a given command and args on a given backend.
+#+html:<p align="center"><img src="assets/isolate.png" /></p>
+This project isolates a given command and args using a container backend.
+Supported backends are bubblewrap, lxc and chroot.
+Latter is mainly thought for updating the underlying Linux system root.
 
-A unique ZFS clone is used as dataset for each isolation, and discarded after running.
-A privileged daemon cleans up used clones and provides new clones.
+A unique, fresh ZFS clone is used as dataset for each isolation, and discarded after use.
+Changes to the dataset are made on disk, preventing high memory usage under load.
+A privileged daemon cleans up used clones and provides fresh clones.
+
+The project consists of the main script =isolate=, the common bindings =common.sh= and =seccomp_wrapper.c=, which complements bubblewrap.
+Latter works around bubblewraps =--new-session= option, which prevents feeding input from the isolated environment to the host terminal, but also prevents job control of the spawned shell.
+
+=isolate= can work without ZFS.
+In this case, modifications to the backing Linux system root are persistent.
+For such setup, see "Setup without ZFS"
 
 ** Setup
 *** System preparations
-We expect a group =isolate= to exist. Users that shall be able to use =isolate= shall be members of this group.
 Copy =isolate= and =common.sh= to =/usr/local/bin=
+We expect a group =isolate= to exist. Users that shall be able to use =isolate= shall be members of this group.
 
 *** Creating the backing Linux system root
-In the following, =rpool/isolate/debisl= is the dataset and =/isolate/debisl= its mountpoint. The mountpoint can be whatever you like.
+In the following, =rpool/isolate/debisl= is the dataset and =/isolate/debisl= its mountpoint. Both may be chosen arbitrarily.
 
 Do the following steps as root user:
 1. Create a system Linux system root dataset root, e.g. =zfs create rpool/isolate/debisl=
 2. Create a template Linux system root using e.g. =debootstrap /isolate/debisl=
-3. [only bwrap] Compile the seccomp wrapper =gcc -static -o seccomp_wrapper seccomp_wrapper.c /usr/lib64/libseccomp.a=
+3. [only bwrap] Compile the seccomp wrapper =gcc -static -o seccomp_wrapper seccomp_wrapper.c /usr/lib64/libseccomp.a=. You need the libseccomp static libs (gentoo: static-libs USE flag) for this step.
 4. [only bwrap] Copy the seccomp wrapper into the root dataset such that it is in the PATH of the spawned isolated environment, e.g. =/usr/bin/seccomp_wrapper=
 5. Chroot into the environment and install what you need =isolate -e chroot -t /isolate/debisl bash=
-6. After you are done, create a snapshot =zfs snapshot "rpool/isolate/debisl@$(date "+%Y%m%dT%H%M%SZ")"=
+6. After you are done, create a snapshot
+  #+BEGIN_SRC
+  zfs snapshot "rpool/isolate/debisl@$(date "+%Y%m%dT%H%M%SZ")"
+  #+END_SRC
 7. Generate clones for usage by =isolate=: =isolate -r rpool/isolate/debisl 5=
 
 Your ZFS structure will look somewhat like this:
@@ -37,19 +50,71 @@ rpool/isolate/debisl_1677860488091186587           8K   488G     6.39G  /isolate
 *** Updating the backing Linux system root
 
 Do the following steps as root user:
-1. Chroot into the environment and install what you need =isolate -e chroot -t /isolate/debisl bash=
-2. After you are done, create a snapshot =zfs snapshot "rpool/isolate/debisl@$(date "+%Y%m%dT%H%M%SZ")"=
-3. Generate clones for usage by =isolate=: =isolate -f -r rpool/isolate/debisl 5=
+1) Chroot into the environment and install what you need =isolate -e chroot -t /isolate/debisl bash=
+2) After you are done, create a snapshot
+  #+BEGIN_SRC
+  zfs snapshot "rpool/isolate/debisl@$(date "+%Y%m%dT%H%M%SZ")"
+  #+END_SRC
+3) Generate clones for usage by =isolate=: =isolate -f -r rpool/isolate/debisl 5=
 
 *** Enabling automatic clone regeneration
 The path and system units we provide expect the isolation Linux system roots to be at =rpool/isolate/xxx=.
-If your paths are differen, please modify the service and path files.
+If your paths are different, please modify the service and path files.
 Also, the number of clones is hardcoded in the unit file. You might want to adjust this too.
-A systemd path unit watches a signal file and triggers clone regeneration when an isolated environment exits and frees the used clone.
+A systemd path unit watches a signal file (touched by =isolate= on each exit) and triggers clone regeneration when an isolated environment exits and frees the used clone.
 
 Copy =isolate_regenerate@.path= and =isolate_regenerate@.service= to =/etc/systemd/system=.
 
 To enable regeneration for =rpool/isolate/debisl=, enable =isolate_regenerate@debisl.path= through =systemctl enable --now isolate_regenerate@debisl.path=
 
+*** X11 and Pulseaudio passthrough
+X11 access from the isolated environment is only supported with the =bwrap= engine, as is pulseaudio support.
+X11 should work without any configuration.
+For pulseaudio to work, you will have to allow anonymous access onto the pulse socket.
+Add the following to =/etc/pulse/default.pa=:
+#+BEGIN_SRC
+  load-module module-native-protocol-unix auth-anonymous=1 socket=/tmp/pulse-socket
+#+END_SRC
+
+*** Setup without ZFS
+=isolate= can function without ZFS by using template mode.
+Create a backing Linux system root in a directory of your choice.
+You can spawn =isolate= as usual, but rather using the =-t= instead of the =-z= option.
+Modifications to the underlying system root are of course permanent in template mode.
+
 ** Executing isolated programs
-See =isolate -h=
+See =isolate -h=:
+
+#+BEGIN_SRC
+spawn:                        /usr/local/bin/isolate [-e engine] [-t templatedir] [-1] [-2] [-n] [-p pwd] [-d dir_host:target_ctr] ... [command] [args] ...
+spawn:                        /usr/local/bin/isolate [-e engine] [-z zfs_template] [-1] [-2] [-n] [-p pwd] [-d dir_host:target_ctr] ... [command] [args] ...
+refresh available zfs clones: /usr/local/bin/isolate [-r template] [-f] [-s] [num_should_avail]
+  [!] refresh ALWAYS uses the latest snapshot on the dataset
+
+OPTIONS
+         -e: engine: one of {bwrap, chroot, lxc}, defaults to bwrap
+         -d: dirs to mount into the sandbox, mounts dir_host to target_ctr in the container
+         -p: pwd: switch to this directory on spawn. Defaults to /
+         -1: bind X11 socket into guest
+         -2: bind Pulseaudio socket into guest
+         -n: share host network
+         -x: trace
+         -f: regenerate ALL templates of given zfs template
+         -s: skip generating new clones
+
+  add all users that should be able to use zfs features to the `isolate' group
+
+ENVIRONMENT VARIABLES
+   PRE_SPAWN_HOOK: command that is run before [command args] are run in the isolated environment
+                   $ROOTFS references the root of the isolated environment to be started
+   POST_SPAWN_HOOK: command that is run after [command args] has completed in the isolated environment
+                   $ROOTFS references the root of the isolated environment to be started
+   DISABLE_SECCOMP_WRAPPER: disable the bwrap seccomp wrapper that prevents IOCTL to host
+
+SUPPORTED BY ENGINE
+  | engine | cmd+args | dirs | pwd | X11 | Pulseaudio |
+  |--------+----------+------+-----+-----+------------|
+  | chroot | X        |      |     |     |            |
+  | bwrap  | X        | X    | X   | X   | X          |
+  | lxc    | X        | X    |     |     |            |
+#+END_SRC
