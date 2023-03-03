@@ -1,0 +1,55 @@
+* ISOLATE
+This project isolates a given command and args on a given backend.
+
+A unique ZFS clone is used as dataset for each isolation, and discarded after running.
+A privileged daemon cleans up used clones and provides new clones.
+
+** Setup
+*** System preparations
+We expect a group =isolate= to exist. Users that shall be able to use =isolate= shall be members of this group.
+Copy =isolate= and =common.sh= to =/usr/local/bin=
+
+*** Creating the backing Linux system root
+In the following, =rpool/isolate/debisl= is the dataset and =/isolate/debisl= its mountpoint. The mountpoint can be whatever you like.
+
+Do the following steps as root user:
+1. Create a system Linux system root dataset root, e.g. =zfs create rpool/isolate/debisl=
+2. Create a template Linux system root using e.g. =debootstrap /isolate/debisl=
+3. [only bwrap] Compile the seccomp wrapper =gcc -static -o seccomp_wrapper seccomp_wrapper.c /usr/lib64/libseccomp.a=
+4. [only bwrap] Copy the seccomp wrapper into the root dataset such that it is in the PATH of the spawned isolated environment, e.g. =/usr/bin/seccomp_wrapper=
+5. Chroot into the environment and install what you need =isolate -e chroot -t /isolate/debisl bash=
+6. After you are done, create a snapshot =zfs snapshot "rpool/isolate/debisl@$(date "+%Y%m%dT%H%M%SZ")"=
+7. Generate clones for usage by =isolate=: =isolate -r rpool/isolate/debisl 5=
+
+Your ZFS structure will look somewhat like this:
+#+BEGIN_SRC
+NAME                                             USED  AVAIL     REFER  MOUNTPOINT
+rpool/isolate                                   18.8G   488G     9.96G  /isolate
+rpool/isolate/deb_gnuradio                      1.86G   488G     1.72G  /isolate/deb_gnuradio
+rpool/isolate/deb_gnuradio_1677838587626715157   184K   488G     1.72G  /isolate/deb_gnuradio_1677838587626715157
+rpool/isolate/deb_gnuradio_1677838587665325261   184K   488G     1.72G  /isolate/deb_gnuradio_1677838587665325261
+rpool/isolate/deb_gnuradio_1677838587703660046   184K   488G     1.72G  /isolate/deb_gnuradio_1677838587703660046
+rpool/isolate/debisl                            6.96G   488G     6.39G  /isolate/debisl
+rpool/isolate/debisl_1677860441807895636           8K   488G     6.39G  /isolate/debisl_1677860441807895636
+rpool/isolate/debisl_1677860480418781581           8K   488G     6.39G  /isolate/debisl_1677860480418781581
+rpool/isolate/debisl_1677860488091186587           8K   488G     6.39G  /isolate/debisl_1677860488091186587
+#+END_SRC
+*** Updating the backing Linux system root
+
+Do the following steps as root user:
+1. Chroot into the environment and install what you need =isolate -e chroot -t /isolate/debisl bash=
+2. After you are done, create a snapshot =zfs snapshot "rpool/isolate/debisl@$(date "+%Y%m%dT%H%M%SZ")"=
+3. Generate clones for usage by =isolate=: =isolate -f -r rpool/isolate/debisl 5=
+
+*** Enabling automatic clone regeneration
+The path and system units we provide expect the isolation Linux system roots to be at =rpool/isolate/xxx=.
+If your paths are differen, please modify the service and path files.
+Also, the number of clones is hardcoded in the unit file. You might want to adjust this too.
+A systemd path unit watches a signal file and triggers clone regeneration when an isolated environment exits and frees the used clone.
+
+Copy =isolate_regenerate@.path= and =isolate_regenerate@.service= to =/etc/systemd/system=.
+
+To enable regeneration for =rpool/isolate/debisl=, enable =isolate_regenerate@debisl.path= through =systemctl enable --now isolate_regenerate@debisl.path=
+
+** Executing isolated programs
+See =isolate -h=
