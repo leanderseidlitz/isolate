@@ -229,14 +229,14 @@ handle_pre_spawn_hook() {
 	if [[ -n "${PRE_SPAWN_HOOK:-}" ]]; then
 		einfo "Executing pre spawn hook"
 		export ROOTFS="$1"
-		"$PRE_SPAWN_HOOK"
+		$PRE_SPAWN_HOOK
 	fi
 }
 handle_post_spawn_hook() {
 	if [[ -n "${POST_SPAWN_HOOK:-}" ]]; then
 		einfo "Executing post spawn hook"
 		export ROOTFS="$1"
-		"$POST_SPAWN_HOOK"
+		$POST_SPAWN_HOOK
 	fi
 }
 
