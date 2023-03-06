@@ -25,7 +25,13 @@ In the following, =rpool/isolate/debisl= is the dataset and =/isolate/debisl= it
 Do the following steps as root user:
 1. Create a system Linux system root dataset root, e.g. =zfs create rpool/isolate/debisl=
 2. Create a template Linux system root using e.g. =debootstrap /isolate/debisl=
-3. [only bwrap] Compile the seccomp wrapper =gcc -static -o seccomp_wrapper seccomp_wrapper.c /usr/lib64/libseccomp.a=. You need the libseccomp static libs (gentoo: static-libs USE flag) for this step.
+3. [only bwrap] Compile the seccomp wrapper. You need the libseccomp static libs for this step.
+  #+BEGIN_SRC
+  gentoo: install libseccomp, USE: static-libs
+  debian: install libseccomp-dev
+
+  gcc seccomp_wrapper.c -static -o seccomp_wrapper /usr/lib/x86_64-linux-gnu/libseccomp.a
+  #+END_SRC
 4. [only bwrap] Copy the seccomp wrapper into the root dataset such that it is in the PATH of the spawned isolated environment, e.g. =/usr/bin/seccomp_wrapper=
 5. Chroot into the environment and install what you need =isolate -e chroot -t /isolate/debisl bash=
 6. After you are done, create a snapshot
