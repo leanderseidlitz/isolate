@@ -118,9 +118,9 @@ ENVIRONMENT VARIABLES
    DISABLE_SECCOMP_WRAPPER: disable the bwrap seccomp wrapper that prevents IOCTL to host
 
 SUPPORTED BY ENGINE
-  | engine | cmd+args | dirs | pwd | X11 | Pulseaudio |
-  |--------+----------+------+-----+-----+------------|
-  | chroot | X        |      |     |     |            |
-  | bwrap  | X        | X    | X   | X   | X          |
-  | lxc    | X        | X    |     |     |            |
-#+END_SRC
+  | engine | net | cmd+args | dirs | pwd | X11 | Pulseaudio |
+  |--------+-----+----------+------+-----+-----+------------|
+  | chroot | X   | X        |      |     |     |            |
+  | bwrap  | X   | X        | X    | X   | X   | X          |
+  | lxc    | X   | X        | X    |     |     |            |
+   #+END_SRC
