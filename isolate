@@ -285,9 +285,9 @@ lets_go_bwrap() {
 	fi
 	for dir_mount in "${dir_mounts[@]}"; do
 		IFS=':'; from_to=($dir_mount); unset IFS;
-		from="${from_to[0]}"
+		from="${from_to[0]:-}"
 		[[ -z "$from" ]] && die "-d ${dir_mount} is invalid"
-		to="${from_to[1]}"
+		to="${from_to[1]:-}"
 		[[ -z "$to" ]] && die "-d ${dir_mount} is invalid"
 		einfo "Mounting $(realpath "$from") -> $(realpath "$to")"
 		cmd+=( "--dir" "$(realpath "$to")" )
@@ -338,9 +338,9 @@ lets_go_lxc() {
 EOF
 	for dir_mount in "${dir_mounts[@]}"; do
 		IFS=':'; from_to=($dir_mount); unset IFS;
-		from="${from_to[0]}"
+		from="${from_to[0]:-}"
 		[[ -z "$from" ]] && die "-d ${dir_mount} is invalid"
-		to="${from_to[1]}"
+		to="${from_to[1]:-}"
 		[[ -z "$to" ]] && die "-d ${dir_mount} is invalid"
 		einfo "Mounting $(realpath "$from") -> ${to#/}"
 		echo "lxc.mount.entry = $(realpath "$from") ${to#/} none bind,create=dir 0 0" >> "$LXC_CONF_TARGET"
