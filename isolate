@@ -130,7 +130,7 @@ refresh_zfs() {
 	check_lockfile_setup "$LOCKFILE"
 
 	(
-		flock -x -n 11 || die "template mgmt lock unavailable"
+		flock -x -w 3 11 || die "template mgmt lock unavailable"
 
 		if [[ -n "${FORCEREGENALLZFS:-}" ]]; then
 			eattention "REGENERATING ALL TEMPLATES"
@@ -200,7 +200,7 @@ consume_fresh_zfs_template_respawn() {
 	check_lockfile_setup "$LOCKFILE"
 
 	exec 11>"$LOCKFILE"
-	flock -x -n 11 || die "template mgmt lock unavailable"
+	flock -x -w 3 11 || die "template mgmt lock unavailable"
 	(( 10#$(wc -l < "$FREEFILE") <= 0 )) && ( touch "$SIGNALFILE"; die "no free template clones available, spawn new clones before continuing" )
 	
 	to_use="$(head -n 1 "$FREEFILE")"
