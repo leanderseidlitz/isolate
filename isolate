@@ -2,6 +2,7 @@
 
 set -euo pipefail
 
+USER="$(whoami)"
 RUNDIR="$(dirname "$(realpath "$0")")"
 source "$RUNDIR/common.sh"
 
