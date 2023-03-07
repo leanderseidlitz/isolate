@@ -342,8 +342,8 @@ EOF
 		[[ -z "$from" ]] && dir "-d ${dir_mount} is invalid"
 		to="${from_to[1]}"
 		[[ -z "$to" ]] && dir "-d ${dir_mount} is invalid"
-		einfo "Mounting $(realpath "$from") -> $(realpath "$to")"
-		echo "lxc.mount.entry = $(realpath "$from") $(realpath "$to") none bind,create=dir 0 0" >> "$LXC_CONF_TARGET"
+		einfo "Mounting $(realpath "$from") -> $(realpath --canonicalize-missing "$to")"
+		echo "lxc.mount.entry = $(realpath "$from") $(realpath --canonicalize-missing "$to") none bind,create=dir 0 0" >> "$LXC_CONF_TARGET"
 	done
 
 	handle_pre_spawn_hook "$rootfs"
