@@ -1,6 +1,7 @@
 [Unit]
 Description=regenerate the clones of zfs template isolate/%I
-
+StartLimitIntervalSec=10s
+StartLimitBurst=50
 
 [Service]
 SyslogIdentifier=isolate
