@@ -1,14 +1,17 @@
 #!/bin/bash
 
 elog() {
+	[[ -n "${QUIET:-}" ]] && return
 	echo "[[1m+[m] $*" >&2
 }
 
 einfo() {
+	[[ -n "${QUIET:-}" ]] && return
 	echo "[[1;32m+[m] $*" >&2
 }
 
 eattention() {
+	[[ -n "${QUIET:-}" ]] && return
 	echo "[[1;33m![m] $*" >&2
 }
 
@@ -27,7 +30,8 @@ die() {
 }
 
 ok(){
-        echo "[1;36m[[1;32m ok [1;36m][m $*" >&2
+	[[ -n "${QUIET:-}" ]] && return
+    echo "[1;36m[[1;32m ok [1;36m][m $*" >&2
 }
 
 countdown() {

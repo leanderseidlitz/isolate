@@ -22,6 +22,7 @@ print_usage_and_exit() {
 	echo "         -x: trace"
 	echo "         -f: regenerate ALL templates of given zfs template"
 	echo "         -s: skip generating new clones"
+	echo "         -q: quiet: only print warnings and prompts"
 	echo ""
 	echo "  add all users that should be able to use zfs features to the \`isolate' group"
 	echo ""
@@ -45,7 +46,7 @@ print_usage_and_exit() {
 
 orig_args=( "$@" )
 dir_mounts=( )
-while getopts "e:p:d:xt:hnz:r:fs12" o; do
+while getopts "e:p:d:xt:hnz:r:fs12q" o; do
 	case "$o" in
 		e)
 			ENGINE="$OPTARG"
@@ -86,6 +87,9 @@ while getopts "e:p:d:xt:hnz:r:fs12" o; do
 			;;
 		s)
 			SKIPGENNEWZFS="yes"
+			;;
+		q)
+			QUIET="yes"
 			;;
 		h)
 			print_usage_and_exit
