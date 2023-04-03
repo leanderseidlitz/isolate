@@ -32,6 +32,7 @@ print_usage_and_exit() {
 	echo "                   \$ROOTFS references the root of the isolated environment to be started"
 	echo "   DISABLE_SECCOMP_WRAPPER: disable the bwrap seccomp wrapper that prevents IOCTL to host"
 	echo "   LXC_NET_BR: bridge to be used by LXC, defaults to br_vm"
+	echo "   DEBUG_LXC_SPAWN: if nonzero len, write lxc start log to /tmp/isolate_lxc_log"
 	echo ""
 	echo "SUPPORTED BY ENGINE"
 	echo "  | engine | net | cmd+args | dirs | pwd | X11 | Pulseaudio |"
@@ -317,18 +318,20 @@ lets_go_lxc() {
 
 	CTR_NAME="$(basename "$rootfs")"
 	CTR_NAME="${CTR_NAME//[^[:alnum:]]/-}"
-	LXC_CONF_TARGET="/var/lib/lxc/${CTR_NAME}/config"
+
+
+	if (( UID == 0 )); then
+		LXC_CONF_TARGET="/var/run/isolate/${CTR_NAME}/config"
+	else
+		LXC_CONF_TARGET="$HOME/.config/isolate/${CTR_NAME}/config"
+	fi
 	mkdir -p "$(dirname "$LXC_CONF_TARGET")"
 
 	einfo "DEFINING container $CTR_NAME"
 	cat <<-EOF > "$LXC_CONF_TARGET"
 		lxc.include = /usr/share/lxc/config/common.conf
 		lxc.include = /usr/share/lxc/config/userns.conf
-		#lxc.apparmor.profile = generated
-		#lxc.apparmor.allow_nesting = 1
-		# deny keyboard/console access
-		lxc.cgroup.devices.deny = c 5:0 rw
-		lxc.cgroup.devices.deny = c 5:1 rw
+		lxc.cgroup.devices.deny = a # Deny all access to devices		
 		lxc.idmap = u 0 0 131072
 		lxc.idmap = g 0 0 131072
 		lxc.rootfs.path = $rootfs
@@ -360,11 +363,18 @@ EOF
 
 	handle_pre_spawn_hook "$rootfs"
 	einfo "STARTING container $CTR_NAME"
-	lxc-start "$CTR_NAME"
-	einfo "ATTACHING to container $CTR_NAME"
-	lxc-attach "$CTR_NAME" -- "${@:2}" || ISOLATE_EXITCODE="$?"
-	einfo "STOPPING container $CTR_NAME, timeout 3s"
-	lxc-stop -t 3 "$CTR_NAME"
+	LXCPATH="$(dirname "$(dirname "$LXC_CONF_TARGET")")"
+	lxc_start=("lxc-start" "--lxcpath=$LXCPATH" "$CTR_NAME")
+	[[ -n "${DEBUG_LXC_SPAWN:-}" ]] && lxc_start+=("--logfile=/tmp/lxc" "--logpriority=debug")
+	"${lxc_start[@]}" || fail="yes"
+	if [[ -n "${fail:-}" ]]; then
+		eattention "container spawn failed, likely a LXC issue"
+	else
+		einfo "ATTACHING to container $CTR_NAME"
+		lxc-attach --lxcpath="$LXCPATH" "$CTR_NAME" -- "${@:2}" || ISOLATE_EXITCODE="$?"
+		einfo "STOPPING container $CTR_NAME, timeout 3s"
+		lxc-stop --lxcpath="$LXCPATH" -t 3 "$CTR_NAME"
+	fi
 	handle_post_spawn_hook "$rootfs"
 	rm -rf "$(dirname "$LXC_CONF_TARGET")"
 
@@ -401,7 +411,6 @@ else
 			lets_go_bwrap "$rootfs" "$@" || ISOLATE_EXITCODE="$?"
 			;;
 		lxc)
-			(( UID == 0 )) || die "lxc engine must be run as root"
 			lets_go_lxc "$rootfs" "$@" || ISOLATE_EXITCODE="$?"
 			;;
 		chroot)
