@@ -123,7 +123,7 @@ refresh_zfs() {
 	chown root:isolate "$FREEFILE" && chmod 660 "$FREEFILE"
 	ERRORFILE="$(dirname "$TEMPLATE_MOUNTPOINT")/.error-destroy-$(basename "$zfs_template")"
 	SIGNALFILE="$(dirname "$TEMPLATE_MOUNTPOINT")/.signal-$(basename "$zfs_template")"
-	if [[ ! -f "$SIGNALFILE" ]]; then
+	if [[ ! -f "$SIGNALFILE" ]] || [[ "$(stat -c "%a%G" "$SIGNALFILE")" != "660isolate" ]]; then
 		touch "$SIGNALFILE"
 		chmod 660 "$SIGNALFILE"
 		chown root:isolate "$SIGNALFILE"
