@@ -41,7 +41,7 @@ print_usage_and_exit() {
 	echo "  |--------+-----|-----+----------+------+-----+-----+------------|"
 	echo "  | chroot |     |  X  | X        |      |     |     |            |"
 	echo "  | bwrap  |     |  X  | X        | X    | X   | X   | X          |"
-	echo "  | lxc    |  X  |  X  | X        | X    |     |     |            |"
+	echo "  | lxc    |  X  |  X  | X        | X    | X   |     |            |"
 	exit 0
 }
 
@@ -389,7 +389,7 @@ EOF
 		eattention "container spawn failed, likely a LXC issue"
 	else
 		einfo "ATTACHING to container $CTR_NAME"
-		lxc-attach --lxcpath="$LXCPATH" "$CTR_NAME" -- "${@:2}" || ISOLATE_EXITCODE="$?"
+		lxc-attach --lxcpath="$LXCPATH" "$CTR_NAME" -- env -C "${workdir:-/}" "${@:2}" || ISOLATE_EXITCODE="$?"
 		einfo "STOPPING container $CTR_NAME, timeout 3s"
 		lxc-stop --lxcpath="$LXCPATH" -t 3 "$CTR_NAME"
 	fi
