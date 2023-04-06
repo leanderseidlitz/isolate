@@ -7,14 +7,15 @@ RUNDIR="$(dirname "$(realpath "$0")")"
 source "$RUNDIR/common.sh"
 
 print_usage_and_exit() {
-	echo "spawn:                        $0 [-e engine] [-t templatedir] [-1] [-2] [-n] [-p pwd] [-d dir_host:target_ctr] [command] [args] ..."
-	echo "spawn:                        $0 [-e engine] [-z zfs_template] [-1] [-2] [-n] [-p pwd] [-d dir_host:target_ctr] [command] [args] ..."
+	echo "spawn:                        $0 [-e engine] [-t templatedir] [-1] [-2] [-n] [-p pwd] [-d dir_host:target_ctr]... [-v env_name:env_value]... [command] [args] ..."
+	echo "spawn:                        $0 [-e engine] [-z zfs_template] [-1] [-2] [-n] [-p pwd] [-d dir_host:target_ctr]... [-v env_name:env_value]... [command] [args] ..."
 	echo "refresh available zfs clones: $0 [-r template] [-f] [-s] [num_should_avail]"
 	echo "  [!] refresh ALWAYS uses the latest snapshot on the dataset"
 	echo ""
 	echo "OPTIONS"
 	echo "         -e: engine: one of {bwrap, chroot, lxc}, defaults to bwrap"
 	echo "         -d: dirs to mount into the sandbox, mounts dir_host to target_ctr in the container"
+	echo "         -v: var:value to pass into the sandbox"
 	echo "         -p: pwd: switch to this directory on spawn. Defaults to /"
 	echo "         -1: bind X11 socket into guest"
 	echo "         -2: bind Pulseaudio socket into guest"
@@ -36,17 +37,18 @@ print_usage_and_exit() {
 	echo "   DEBUG_LXC_SPAWN: if nonzero len, write lxc start log to /tmp/isolate_lxc_log"
 	echo ""
 	echo "SUPPORTED BY ENGINE"
-	echo "  | engine | net | cmd+args | dirs | pwd | X11 | Pulseaudio |"
-	echo "  |--------+-----+----------+------+-----+-----+------------|"
-	echo "  | chroot | X   | X        |      |     |     |            |"
-	echo "  | bwrap  | X   | X        | X    | X   | X   | X          |"
-	echo "  | lxc    | X   | X        | X    |     |     |            |"
+	echo "  | engine | env | net | cmd+args | dirs | pwd | X11 | Pulseaudio |"
+	echo "  |--------+-----|-----+----------+------+-----+-----+------------|"
+	echo "  | chroot |     |  X  | X        |      |     |     |            |"
+	echo "  | bwrap  |     |  X  | X        | X    | X   | X   | X          |"
+	echo "  | lxc    |  X  |  X  | X        | X    |     |     |            |"
 	exit 0
 }
 
 orig_args=( "$@" )
 dir_mounts=( )
-while getopts "e:p:d:xt:hnz:r:fs12q" o; do
+env_variables=( )
+while getopts "e:p:d:xt:hnz:r:v:fs12q" o; do
 	case "$o" in
 		e)
 			ENGINE="$OPTARG"
@@ -56,6 +58,9 @@ while getopts "e:p:d:xt:hnz:r:fs12q" o; do
 			;;
 	    d)
 			dir_mounts+=( "$OPTARG" )
+			;;
+	    v)
+			env_variables+=( "$OPTARG" )
 			;;
 		x)
 			set -x
@@ -363,6 +368,15 @@ EOF
 		[[ -z "$to" ]] && die "-d ${dir_mount} is invalid"
 		einfo "Mounting $(realpath "$from") -> ${to#/}"
 		echo "lxc.mount.entry = $(realpath "$from") ${to#/} none bind,create=dir 0 0" >> "$LXC_CONF_TARGET"
+	done
+	for env_variable in "${env_variables[@]}"; do
+		IFS=':'; name_value=($env_variable); unset IFS;
+		name="${name_value[0]:-}"
+		[[ -z "$name" ]] && die "-d ${env_variable} is invalid"
+		value="${name_value[1]:-}"
+		[[ -z "$value" ]] && die "-d ${env_variable} is invalid"
+		einfo "setting $name to \`$value'"
+		echo "lxc.environment = $name=$value" >> "$LXC_CONF_TARGET"
 	done
 
 	handle_pre_spawn_hook "$rootfs"
