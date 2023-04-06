@@ -54,7 +54,7 @@ while getopts "e:p:d:xt:hnz:r:v:fs12q" o; do
 			ENGINE="$OPTARG"
 			;;
 		p)
-			workdir="$(realpath "$OPTARG")"
+			workdir="$(realpath --canonicalize-missing "$OPTARG")"
 			;;
 	    d)
 			dir_mounts+=( "$OPTARG" )
