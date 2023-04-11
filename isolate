@@ -15,6 +15,9 @@ print_usage_and_exit() {
 	echo "OPTIONS"
 	echo "         -e: engine: one of {bwrap, chroot, lxc}, defaults to bwrap"
 	echo "         -d: dirs to mount into the sandbox, mounts dir_host to target_ctr in the container"
+	echo "         -u: uid [integer] to use as base uid. uid and the following 65535 uids are mapped to [0:65535] in the sandbox."
+	echo "         -g: gid [integer] to use as base gid. gid and the following 65535 gids are mapped to [0:65535] in the sandbox."
+	echo "             NOTE: when using -u or -g, you should align the ownership of the template to the range specified."
 	echo "         -v: var:value to pass into the sandbox"
 	echo "         -p: pwd: switch to this directory on spawn. Defaults to /"
 	echo "         -1: bind X11 socket into guest"
@@ -37,18 +40,18 @@ print_usage_and_exit() {
 	echo "   DEBUG_LXC_SPAWN: if nonzero len, write lxc start log to /tmp/isolate_lxc_log"
 	echo ""
 	echo "SUPPORTED BY ENGINE"
-	echo "  | engine | env | net | cmd+args | dirs | pwd | X11 | Pulseaudio |"
-	echo "  |--------+-----|-----+----------+------+-----+-----+------------|"
-	echo "  | chroot |     |  X  | X        |      |     |     |            |"
-	echo "  | bwrap  |     |  X  | X        | X    | X   | X   | X          |"
-	echo "  | lxc    |  X  |  X  | X        | X    | X   |     |            |"
+	echo "  | engine | env | {U/G}ID | net | cmd+args | dirs | pwd | X11 | Pulseaudio |"
+	echo "  |--------+-----|---------------+----------+------+-----+-----+------------|"
+	echo "  | chroot |     |         |  X  | X        |      |     |     |            |"
+	echo "  | bwrap  |     |         |  X  | X        | X    | X   | X   | X          |"
+	echo "  | lxc    |  X  |    X    |  X  | X        | X    | X   |     |            |"
 	exit 0
 }
 
 orig_args=( "$@" )
 dir_mounts=( )
 env_variables=( )
-while getopts "e:p:d:xt:hnz:r:v:fs12q" o; do
+while getopts "e:p:d:xt:hnz:r:v:fs12qu:g:" o; do
 	case "$o" in
 		e)
 			ENGINE="$OPTARG"
@@ -95,6 +98,14 @@ while getopts "e:p:d:xt:hnz:r:v:fs12q" o; do
 			;;
 		q)
 			QUIET="yes"
+			;;
+		u)
+			UIDBASE="$OPTARG"
+			[[ "$UIDBASE" == +([0-9]) ]] || die "-u ${UIDBASE} is not an integer"
+			;;
+		g)
+			GIDBASE="$OPTARG"
+			[[ "$GIDBASE" == +([0-9]) ]] || die "-u ${GIDBASE} is not an integer"
 			;;
 		h)
 			print_usage_and_exit
@@ -341,8 +352,8 @@ lets_go_lxc() {
 		lxc.include = /usr/share/lxc/config/common.conf
 		lxc.include = /usr/share/lxc/config/userns.conf
 		lxc.cgroup.devices.deny = a # Deny all access to devices		
-		lxc.idmap = u 0 0 131072
-		lxc.idmap = g 0 0 131072
+		lxc.idmap = u 0 ${UIDBASE:-0} 131072
+		lxc.idmap = g 0 ${GIDBASE:-0} 131072
 		lxc.rootfs.path = $rootfs
 		lxc.mount.entry = none tmp tmpfs mode=1777,size=256M 0 0
 		lxc.uts.name = $CTR_NAME
