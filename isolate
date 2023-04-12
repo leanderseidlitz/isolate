@@ -13,20 +13,20 @@ print_usage_and_exit() {
 	echo "  [!] refresh ALWAYS uses the latest snapshot on the dataset"
 	echo ""
 	echo "OPTIONS"
-	echo "         -e: engine: one of {bwrap, chroot, lxc}, defaults to bwrap"
-	echo "         -d: dirs to mount into the sandbox, mounts dir_host to target_ctr in the container"
-	echo "         -u: uid [integer] to use as base uid. uid and the following 65535 uids are mapped to [0:65535] in the sandbox."
-	echo "         -g: gid [integer] to use as base gid. gid and the following 65535 gids are mapped to [0:65535] in the sandbox."
-	echo "             NOTE: when using -u or -g, you should align the ownership of the template to the range specified."
-	echo "         -v: var:value to pass into the sandbox"
-	echo "         -p: pwd: switch to this directory on spawn. Defaults to /"
-	echo "         -1: bind X11 socket into guest"
-	echo "         -2: bind Pulseaudio socket into guest"
-	echo "         -n: share host network"
-	echo "         -x: trace"
-	echo "         -f: regenerate ALL templates of given zfs template"
-	echo "         -s: skip generating new clones"
-	echo "         -q: quiet: only print warnings and prompts"
+	echo "		   -e: engine: one of {bwrap, chroot, lxc}, defaults to bwrap"
+	echo "		   -d: dirs to mount into the sandbox, mounts dir_host to target_ctr in the container"
+	echo "		   -u: uid [integer] to use as base uid. uid and the following 65535 uids are mapped to [0:65535] in the sandbox."
+	echo "		   -g: gid [integer] to use as base gid. gid and the following 65535 gids are mapped to [0:65535] in the sandbox."
+	echo "			   NOTE: when using -u or -g, you should align the ownership of the template to the range specified."
+	echo "		   -v: var:value to pass into the sandbox"
+	echo "		   -p: pwd: switch to this directory on spawn. Defaults to /"
+	echo "		   -1: bind X11 socket into guest"
+	echo "		   -2: bind Pulseaudio socket into guest"
+	echo "		   -n: share host network"
+	echo "		   -x: trace"
+	echo "		   -f: regenerate ALL templates of given zfs template"
+	echo "		   -s: skip generating new clones"
+	echo "		   -q: quiet: only print warnings and prompts"
 	echo ""
 	echo "  add all users that should be able to use zfs features to the \`isolate' group"
 	echo ""
@@ -42,10 +42,10 @@ print_usage_and_exit() {
 	echo ""
 	echo "SUPPORTED BY ENGINE"
 	echo "  | engine | env | {U/G}ID | net | cmd+args | dirs | pwd | X11 | Pulseaudio |"
-	echo "  |--------+-----|---------------+----------+------+-----+-----+------------|"
-	echo "  | chroot |     |         |  X  | X        |      |     |     |            |"
-	echo "  | bwrap  |     |         |  X  | X        | X    | X   | X   | X          |"
-	echo "  | lxc    |  X  |    X    |  X  | X        | X    | X   |     |            |"
+    echo "  |--------+-----|---------------+----------+------|-----+-----+------------|"
+    echo "  | chroot |     |         |  X  | X        |      |     |     |            |"
+    echo "  | bwrap  |     |         |  X  | X        | X    | X   |  X  |     X      |"
+    echo "  | lxc    |  X  |    X    |  X  | X        | X    | X   |     |            |"
 	exit 0
 }
 
@@ -60,10 +60,10 @@ while getopts "e:p:d:xt:hnz:r:v:fs12qu:g:" o; do
 		p)
 			workdir="$(realpath --canonicalize-missing "$OPTARG")"
 			;;
-	    d)
+		d)
 			dir_mounts+=( "$OPTARG" )
 			;;
-	    v)
+		v)
 			env_variables+=( "$OPTARG" )
 			;;
 		x)
@@ -111,7 +111,7 @@ while getopts "e:p:d:xt:hnz:r:v:fs12qu:g:" o; do
 		h)
 			print_usage_and_exit
 			;;
-	    *)
+		*)
 			;;
 	esac
 done
@@ -245,7 +245,7 @@ consume_fresh_zfs_template_respawn() {
 	export ISOLATE_ZFSMOUNTPOINT="$to_use_mountpoint"
 	export ISOLATE_SIGNALFILE="$SIGNALFILE"
 	# respawn on that template
-    "$0" "${orig_args[@]}"
+	"$0" "${orig_args[@]}"
 }
 
 
@@ -267,12 +267,12 @@ handle_post_spawn_hook() {
 # chroot into the given template directory but do no further isolation
 # $1 is the root, the rest of the args the command
 lets_go_chroot() {
-    eattention "YOU ARE AWARE THAT THIS MODE DOES NOT ISOLATE"
+	eattention "YOU ARE AWARE THAT THIS MODE DOES NOT ISOLATE"
 	local rootfs
 	rootfs="$1"
 	einfo "CHROOTING INTO $rootfs"
 
-    handle_pre_spawn_hook "$rootfs"
+	handle_pre_spawn_hook "$rootfs"
 	chroot "$rootfs" "${@:2}" || ISOLATE_EXITCODE="$?"
 	handle_post_spawn_hook "$rootfs"
 
@@ -285,9 +285,9 @@ lets_go_bwrap() {
 	local rootfs
 	rootfs="$1"
 	[[ -z "${*:2}" ]] && print_usage_and_exit
-    einfo "ISOLATING ${*:2} in root $rootfs"
+	einfo "ISOLATING ${*:2} in root $rootfs"
 	# as long as we use our seccomp wrapper we dont need --new-session
- 	cmd=( "bwrap" "--setenv" "PATH" "/usr/local/bin:/usr/bin:/bin" "--hostname" "$(basename "$rootfs")" "--cap-drop" "ALL" "--die-with-parent" "--uid" "0" "--gid" "0" "--unshare-ipc" "--unshare-pid" "--unshare-uts" "--unshare-cgroup" "--ro-bind" "$rootfs" "/" "--dev" "/dev" "--proc" "/proc" "--tmpfs" "/tmp" "--tmpfs" "/home" "--chdir" "/" )
+	cmd=( "bwrap" "--setenv" "PATH" "/usr/local/bin:/usr/bin:/bin" "--hostname" "$(basename "$rootfs")" "--cap-drop" "ALL" "--die-with-parent" "--uid" "0" "--gid" "0" "--unshare-ipc" "--unshare-pid" "--unshare-uts" "--unshare-cgroup" "--ro-bind" "$rootfs" "/" "--dev" "/dev" "--proc" "/proc" "--tmpfs" "/tmp" "--tmpfs" "/home" "--chdir" "/" )
 	if [[ -n "${share_net:-}" ]]; then
 		einfo "ENABLING NETWORK SUPPORT"
 		cmd+=( "--share-net" )
@@ -306,23 +306,23 @@ lets_go_bwrap() {
 		cmd+=( "--setenv" "PULSE_SERVER" "unix:/pulse-guest.socket" )
 		cmd+=( "--bind" "/tmp/pulse-socket" "/pulse-guest.socket" )
 	fi
-	for dir_mount in "${dir_mounts[@]}"; do
+	for dir_mount in "${overlay_mounts[@]}"; do
 		IFS=':'; from_to=($dir_mount); unset IFS;
 		from="${from_to[0]:-}"
-		[[ -z "$from" ]] && die "-d ${dir_mount} is invalid"
+		[[ -z "$from" ]] && die "-o ${dir_mount} is invalid"
 		to="${from_to[1]:-}"
-		[[ -z "$to" ]] && die "-d ${dir_mount} is invalid"
+		[[ -z "$to" ]] && die "-o ${dir_mount} is invalid"
 		einfo "Mounting $(realpath "$from") -> $(realpath "$to")"
 		cmd+=( "--dir" "$(realpath "$to")" )
 		cmd+=( "--bind" "$(realpath "$from")" "$(realpath "$to")" )
 	done
 	einfo "Workdir is ${workdir:-/}"
 	cmd+=( "env" "-C" "${workdir:-/}" )
-    [[ -n "${DISABLE_SECCOMP_WRAPPER:-}" ]] && eattention "Disabling seccomp wrapper. IOCTL to host possible [!]"
-    [[ -z "${DISABLE_SECCOMP_WRAPPER:-}" ]] && cmd+=( "seccomp_wrapper" )
+	[[ -n "${DISABLE_SECCOMP_WRAPPER:-}" ]] && eattention "Disabling seccomp wrapper. IOCTL to host possible [!]"
+	[[ -z "${DISABLE_SECCOMP_WRAPPER:-}" ]] && cmd+=( "seccomp_wrapper" )
 	cmd+=( "${@:2}" )
 
-    handle_pre_spawn_hook "$rootfs"
+	handle_pre_spawn_hook "$rootfs"
 	"${cmd[@]}" || ISOLATE_EXITCODE="$?"
 	handle_post_spawn_hook "$rootfs"
 
@@ -335,7 +335,7 @@ lets_go_lxc() {
 	local rootfs
 	rootfs="$1"
 	[[ -z "${*:2}" ]] && print_usage_and_exit
-    einfo "ISOLATING ${*:2} in root $rootfs"
+	einfo "ISOLATING ${*:2} in root $rootfs"
 
 	CTR_NAME="$(basename "$rootfs")"
 	CTR_NAME="${CTR_NAME//[^[:alnum:]]/-}"
@@ -379,7 +379,7 @@ EOF
 		to="${from_to[1]:-}"
 		[[ -z "$to" ]] && die "-d ${dir_mount} is invalid"
 		einfo "Mounting $(realpath "$from") -> ${to#/}"
-		echo "lxc.mount.entry = $(realpath "$from") ${to#/} none bind,create=dir 0 0" >> "$LXC_CONF_TARGET"
+		echo "lxc.mount.entry = $(realpath "$from") ${to#/} none bind,create=dir" >> "$LXC_CONF_TARGET"
 	done
 	for env_variable in "${env_variables[@]}"; do
 		IFS=':'; name_value=($env_variable); unset IFS;
