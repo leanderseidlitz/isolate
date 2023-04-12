@@ -349,6 +349,7 @@ lets_go_lxc() {
 	mkdir -p "$(dirname "$LXC_CONF_TARGET")"
 
 	einfo "DEFINING container $CTR_NAME"
+	max_mem_mb="$(( $(grep -o -P "(?<=^MemTotal:)[ 0-9]+" /proc/meminfo | tr -d " ") / 1000 / 20 ))"
 	cat <<-EOF > "$LXC_CONF_TARGET"
 		lxc.include = /usr/share/lxc/config/common.conf
 		lxc.include = /usr/share/lxc/config/userns.conf
@@ -358,8 +359,10 @@ lets_go_lxc() {
 		lxc.rootfs.path = $rootfs
 		lxc.mount.entry = none tmp tmpfs mode=1777,size=256M 0 0
 		lxc.uts.name = $CTR_NAME
-		lxc.cgroup.memory.memsw.limit_in_bytes = $(( $(free | awk '/^Mem:/{print $2}') / 100 ))
-		lxc.cgroup.memory.limit_in_bytes = $(( $(free | awk '/^Mem:/{print $2}') / 100 ))
+		lxc.cgroup.memory.memsw.limit_in_bytes = $((max_mem_mb * 1000000))
+		lxc.cgroup.memory.limit_in_bytes = $((max_mem_mb * 1000000))
+		lxc.cgroup2.memory.max = ${max_mem_mb}M
+		lxc.cgroup2.memory.swap.max = ${max_mem_mb}M
 EOF
 
 	if [[ -n "${share_net:-}" ]]; then
