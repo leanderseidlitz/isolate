@@ -369,7 +369,15 @@ EOF
 		lxc.net.0.link = ${LXC_NET_BR:-br_vm}
 		lxc.net.0.flags = up
 EOF
+	fi
 
+	if [[ -n "${LXC_MAP_TUN:-}" ]]; then
+		einfo "ENABLING TUN DEVICE (/dev/net/tun) SUPPORT"
+		cat <<-EOF >> "$LXC_CONF_TARGET"
+		lxc.cgroup.devices.allow = c 10:200 rwm
+		lxc.mount.entry = /dev/net dev/net none bind,create=dir 0 0
+		#lxc.cap.keep = mknod
+EOF
 	fi
 
 	for dir_mount in "${dir_mounts[@]}"; do
