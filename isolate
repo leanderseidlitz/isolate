@@ -38,6 +38,7 @@ print_usage_and_exit() {
 	echo "   DISABLE_SECCOMP_WRAPPER [=!'']: disable the bwrap seccomp wrapper that prevents IOCTL to host"
 	echo "   LXC_NET_BR [=!'']: bridge to be used by LXC, defaults to br_vm"
 	echo "   LXC_MAP_TUN [!='']: map /dev/net/tun into the container"
+	echo "   LXC_CPU_QUOTA: percentage (1-100), this amount of CPU processing time will be available to the container. Default: 20"
 	echo "   DEBUG_LXC_SPAWN [=!'']: if nonzero len, write lxc start log to /tmp/isolate_lxc_log"
 	echo ""
 	echo "SUPPORTED BY ENGINE"
@@ -350,6 +351,9 @@ lets_go_lxc() {
 
 	einfo "DEFINING container $CTR_NAME"
 	max_mem_mb="$(( $(grep -o -P "(?<=^MemTotal:)[ 0-9]+" /proc/meminfo | tr -d " ") / 1000 / 20 ))"
+	LXC_CPU_QUOTA="${LXC_CPU_QUOTA:-20}"
+	( (( 10#$LXC_CPU_QUOTA > 0 )) && (( 10#$LXC_CPU_QUOTA <= 100 )) ) || die "10#$LXC_CPU_QUOTA must be in [1,100]"
+    nproc_assign=$(( $(nproc) / (100 / 10#$LXC_CPU_QUOTA) ))
 	cat <<-EOF > "$LXC_CONF_TARGET"
 		lxc.include = /usr/share/lxc/config/common.conf
 		lxc.include = /usr/share/lxc/config/userns.conf
@@ -363,6 +367,7 @@ lets_go_lxc() {
 		lxc.cgroup.memory.limit_in_bytes = $((max_mem_mb * 1000000))
 		lxc.cgroup2.memory.max = ${max_mem_mb}M
 		lxc.cgroup2.memory.swap.max = ${max_mem_mb}M
+		lxc.cgroup2.cpu.max = $(( 10#$nproc_assign * 100000)) 100000
 EOF
 
 	if [[ -n "${share_net:-}" ]]; then
