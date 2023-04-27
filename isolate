@@ -355,6 +355,7 @@ lets_go_lxc() {
 	LXC_CPU_QUOTA="${LXC_CPU_QUOTA:-20}"
 	( (( 10#$LXC_CPU_QUOTA > 0 )) && (( 10#$LXC_CPU_QUOTA <= 100 )) ) || die "10#$LXC_CPU_QUOTA must be in [1,100]"
     nproc_assign=$(( $(nproc) / (100 / 10#$LXC_CPU_QUOTA) ))
+	(( 10#$nproc_assign < 1 )) && nproc_assign=1
 	cat <<-EOF > "$LXC_CONF_TARGET"
 		lxc.include = /usr/share/lxc/config/common.conf
 		lxc.include = /usr/share/lxc/config/userns.conf
