@@ -39,6 +39,7 @@ print_usage_and_exit() {
 	echo "   LXC_NET_BR [=!'']: bridge to be used by LXC, defaults to br_vm"
 	echo "   LXC_MAP_TUN [!='']: map /dev/net/tun into the container"
 	echo "   LXC_CPU_QUOTA: percentage (1-100), this amount of CPU processing time will be available to the container. Default: 20"
+	echo "   LXC_MEM_MB_QUOTA: memory available to guest, in MB"
 	echo "   DEBUG_LXC_SPAWN [=!'']: if nonzero len, write lxc start log to /tmp/isolate_lxc_log"
 	echo ""
 	echo "SUPPORTED BY ENGINE"
@@ -350,7 +351,7 @@ lets_go_lxc() {
 	mkdir -p "$(dirname "$LXC_CONF_TARGET")"
 
 	einfo "DEFINING container $CTR_NAME"
-	max_mem_mb="$(( $(grep -o -P "(?<=^MemTotal:)[ 0-9]+" /proc/meminfo | tr -d " ") / 1000 / 20 ))"
+	max_mem_mb="${LXC_MEM_MB_QUOTA:-$(( $(grep -o -P "(?<=^MemTotal:)[ 0-9]+" /proc/meminfo | tr -d " ") / 1000 / 20 ))}"
 	LXC_CPU_QUOTA="${LXC_CPU_QUOTA:-20}"
 	( (( 10#$LXC_CPU_QUOTA > 0 )) && (( 10#$LXC_CPU_QUOTA <= 100 )) ) || die "10#$LXC_CPU_QUOTA must be in [1,100]"
     nproc_assign=$(( $(nproc) / (100 / 10#$LXC_CPU_QUOTA) ))
