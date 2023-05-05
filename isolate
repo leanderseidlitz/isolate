@@ -55,7 +55,7 @@ print_usage_and_exit() {
 orig_args=( "$@" )
 dir_mounts=( )
 env_variables=( )
-while getopts "e:p:d:xt:hnz:r:v:fs12qu:g:" o; do
+while getopts "e:p:d:xt:hnz:r:v:ifs12qu:g:" o; do
 	case "$o" in
 		e)
 			ENGINE="$OPTARG"
@@ -68,6 +68,9 @@ while getopts "e:p:d:xt:hnz:r:v:fs12qu:g:" o; do
 			;;
 		v)
 			env_variables+=( "$OPTARG" )
+			;;
+		i)
+			trap true INT
 			;;
 		x)
 			set -x
