@@ -17,6 +17,7 @@ print_usage_and_exit() {
     echo "         -d: dirs to mount into the sandbox, mounts dir_host to target_ctr in the container"
     echo "         -u: uid [integer] to use as base uid. uid and the following 65535 uids are mapped to [0:65535] in the sandbox."
     echo "         -g: gid [integer] to use as base gid. gid and the following 65535 gids are mapped to [0:65535] in the sandbox."
+	echo "             BWRAP: the bwrap'ed process runs as the specified UID/GID. No range is mapped."
     echo "             NOTE: when using -u or -g, you should align the ownership of the template to the range specified."
     echo "         -i: ignore SIGINT, keep running. Current the workaround until signal passing into the guest is implemented."
     echo "         -v: var:value to pass into the sandbox"
@@ -47,7 +48,7 @@ print_usage_and_exit() {
 	echo "  | engine | env | {U/G}ID | net | cmd+args | dirs | pwd | X11 | Pulseaudio |"
     echo "  |--------+-----|---------------+----------+------|-----+-----+------------|"
     echo "  | chroot |     |         |  X  | X        |      |     |     |            |"
-    echo "  | bwrap  |     |         |  X  | X        | X    | X   |  X  |     X      |"
+    echo "  | bwrap  |     |    X    |  X  | X        | X    | X   |  X  |     X      |"
     echo "  | lxc    |  X  |    X    |  X  | X        | X    | X   |     |            |"
 	exit 0
 }
@@ -293,7 +294,7 @@ lets_go_bwrap() {
 	[[ -z "${*:2}" ]] && print_usage_and_exit
 	einfo "ISOLATING ${*:2} in root $rootfs"
 	# as long as we use our seccomp wrapper we dont need --new-session
-	cmd=( "bwrap" "--setenv" "PATH" "/usr/local/bin:/usr/bin:/bin" "--hostname" "$(basename "$rootfs")" "--cap-drop" "ALL" "--die-with-parent" "--uid" "0" "--gid" "0" "--unshare-ipc" "--unshare-pid" "--unshare-uts" "--unshare-cgroup" "--ro-bind" "$rootfs" "/" "--dev" "/dev" "--proc" "/proc" "--tmpfs" "/tmp" "--tmpfs" "/home" "--chdir" "/" )
+	cmd=( "bwrap" "--setenv" "PATH" "/usr/local/bin:/usr/bin:/bin" "--hostname" "$(basename "$rootfs")" "--cap-drop" "ALL" "--die-with-parent" "--unshare-ipc" "--unshare-pid" "--unshare-uts" "--unshare-cgroup" "--ro-bind" "$rootfs" "/" "--dev" "/dev" "--proc" "/proc" "--tmpfs" "/tmp" "--tmpfs" "/home" "--chdir" "/" )
 	if [[ -n "${share_net:-}" ]]; then
 		einfo "ENABLING NETWORK SUPPORT"
 		cmd+=( "--share-net" )
@@ -322,6 +323,10 @@ lets_go_bwrap() {
 		cmd+=( "--dir" "$(realpath "$to")" )
 		cmd+=( "--bind" "$(realpath "$from")" "$(realpath "$to")" )
 	done
+
+	cmd+=( "--uid" "${UIDBASE:-0}")
+	cmd+=( "--gid" "${GIDBASE:-0}")
+
 	einfo "Workdir is ${workdir:-/}"
 	cmd+=( "env" "-C" "${workdir:-/}" )
 	[[ -n "${DISABLE_SECCOMP_WRAPPER:-}" ]] && eattention "Disabling seccomp wrapper. IOCTL to host possible [!]"
