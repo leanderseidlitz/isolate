@@ -313,7 +313,7 @@ lets_go_bwrap() {
 		cmd+=( "--setenv" "PULSE_SERVER" "unix:/pulse-guest.socket" )
 		cmd+=( "--bind" "/tmp/pulse-socket" "/pulse-guest.socket" )
 	fi
-	for dir_mount in "${overlay_mounts[@]}"; do
+	for dir_mount in "${dir_mounts[@]}"; do
 		IFS=':'; from_to=($dir_mount); unset IFS;
 		from="${from_to[0]:-}"
 		[[ -z "$from" ]] && die "-o ${dir_mount} is invalid"
