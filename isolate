@@ -461,6 +461,7 @@ else
 
 	einfo "Using engine ${ENGINE:-bwrap}, wroom wroom"
 	PIDFILE="/tmp/isolate_$(basename "$rootfs")"
+	PIDFILE="${PIDFILE/%\//slash}"
 	echo "$$" > "$PIDFILE"
 	case "${ENGINE:-bwrap}" in
 		bwrap)
