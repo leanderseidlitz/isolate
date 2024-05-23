@@ -328,6 +328,14 @@ lets_go_bwrap() {
 		cmd+=( "--dir" "$(realpath --canonicalize-missing "$to")" )
 		cmd+=( "--bind" "$(realpath "$from")" "$(realpath --canonicalize-missing "$to")" )
 	done
+	for env_variable in "${env_variables[@]}"; do
+		IFS=':'; name_value=($env_variable); unset IFS;
+		name="${name_value[0]:-}"
+		[[ -z "$name" ]] && die "-d ${env_variable} is invalid"
+		value="${name_value[1]:-}"
+		[[ -z "$value" ]] && die "-d ${env_variable} is invalid"
+		einfo "setting $name to \`$value'"
+		cmd+=( "--setenv" "$name" "$value" )
 	done
 	einfo "Workdir is ${workdir:-/}"
 	cmd+=( "env" "-C" "${workdir:-/}" )
