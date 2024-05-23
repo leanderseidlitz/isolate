@@ -47,8 +47,10 @@ print_usage_and_exit() {
 	echo "  | engine | env | {U/G}ID | net | cmd+args | dirs | pwd | X11 | Pulseaudio |"
 	echo "  |--------+-----|---------------+----------+------|-----+-----+------------|"
 	echo "  | chroot |     |         |  X  | X        |      |     |     |            |"
-	echo "  | bwrap  |  X  |         |  X  | X        | X    | X   |  X  |     X      |"
+	echo "  | bwrap  |  X  |    *    |  X  | X        | X    | X   |  X  |     X      |"
 	echo "  | lxc    |  X  |    X    |  X  | X        | X    | X   |     |            |"
+	echo ""
+	echo "  * this changes the uid in the container, which itself STILL RUNS AS UID 0!"
 	exit 0
 }
 
@@ -293,7 +295,11 @@ lets_go_bwrap() {
 	[[ -z "${*:2}" ]] && print_usage_and_exit
 	einfo "ISOLATING ${*:2} in root $rootfs"
 	# as long as we use our seccomp wrapper we dont need --new-session
-	cmd=( "bwrap" "--setenv" "PATH" "/usr/local/bin:/usr/bin:/bin" "--hostname" "$(basename "$rootfs")" "--cap-drop" "ALL" "--die-with-parent" "--unshare-ipc" "--unshare-pid" "--unshare-uts" "--unshare-cgroup" "--ro-bind" "$rootfs" "/" "--dev" "/dev" "--proc" "/proc" "--tmpfs" "/tmp" "--tmpfs" "/home" "--chdir" "/" )
+	cmd=( "bwrap" "--setenv" "PATH" "/usr/local/bin:/usr/bin:/bin:/usr/sbin" "--hostname" "$(basename "$rootfs")" "--cap-drop" "ALL" "--die-with-parent" "--uid" "${UIDBASE:-0}" "--gid" "${GIDBASE:-0}" "--unshare-ipc" "--unshare-pid" "--unshare-uts" "--unshare-cgroup" "--ro-bind" "$rootfs" "/" "--dev" "/dev" "--proc" "/proc" "--tmpfs" "/tmp" "--tmpfs" "/home" "--chdir" "/" )
+	if [[ -n "${UIDBASE:-}" ]] || [[ -n "${GIDBASE:-}" ]]; then
+		einfo "CREATING NEW USERNS"
+		cmd+=( "--unshare-user" )
+	fi
 	if [[ -n "${share_net:-}" ]]; then
 		einfo "ENABLING NETWORK SUPPORT"
 		cmd+=( "--share-net" )
@@ -322,10 +328,6 @@ lets_go_bwrap() {
 		cmd+=( "--dir" "$(realpath "$to")" )
 		cmd+=( "--bind" "$(realpath "$from")" "$(realpath "$to")" )
 	done
-
-	cmd+=( "--uid" "${UIDBASE:-0}")
-	cmd+=( "--gid" "${GIDBASE:-0}")
-
 	einfo "Workdir is ${workdir:-/}"
 	cmd+=( "env" "-C" "${workdir:-/}" )
 	[[ -n "${DISABLE_SECCOMP_WRAPPER:-}" ]] && eattention "Disabling seccomp wrapper. IOCTL to host possible [!]"
