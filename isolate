@@ -199,7 +199,7 @@ refresh_zfs() {
 		# idiot proof the whole thing
 		[[ "$num_should_avail" =~ ^[0-9]+$ ]] || die "num_should_avail should be a num"
 		(( 10#$num_should_avail < 0 )) && die "num_should_avail cannot be negative"
-		(( 10#$num_should_avail > 50 )) && die "num_should_avail is a bit too large"
+		(( 10#$num_should_avail > 100 )) && die "num_should_avail is a bit too large"
 		
 		if (( 10#$(wc -l < "$FREEFILE") < 10#$num_should_avail )); then
 			num_to_create=$(( 10#$num_should_avail - 10#$(wc -l < "$FREEFILE") ))
