@@ -5,6 +5,11 @@ elog() {
 	echo "[[1m+[m] $*" >&2
 }
 
+edebug() {
+	[[ -n "${QUIET:-}" ]] && return
+	echo "[[1;90m+] $*[m" >&2
+}
+
 einfo() {
 	[[ -n "${QUIET:-}" ]] && return
 	echo "[[1;32m+[m] $*" >&2
