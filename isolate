@@ -324,9 +324,10 @@ lets_go_bwrap() {
 		[[ -z "$from" ]] && die "-o ${dir_mount} is invalid"
 		to="${from_to[1]:-}"
 		[[ -z "$to" ]] && die "-o ${dir_mount} is invalid"
-		einfo "Mounting $(realpath "$from") -> $(realpath "$to")"
-		cmd+=( "--dir" "$(realpath "$to")" )
-		cmd+=( "--bind" "$(realpath "$from")" "$(realpath "$to")" )
+		einfo "Mounting $(realpath "$from") -> $(realpath --canonicalize-missing "$to")"
+		cmd+=( "--dir" "$(realpath --canonicalize-missing "$to")" )
+		cmd+=( "--bind" "$(realpath "$from")" "$(realpath --canonicalize-missing "$to")" )
+	done
 	done
 	einfo "Workdir is ${workdir:-/}"
 	cmd+=( "env" "-C" "${workdir:-/}" )
