@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-USER="$(whoami)"
+USER="$UID"
 RUNDIR="$(dirname "$(realpath "$0")")"
 source "$RUNDIR/common.sh"
 
@@ -88,7 +88,7 @@ while getopts "e:p:d:xt:hnz:r:v:ifs12qu:g:" o; do
 			share_net="yes"
 			;;
 		z)
-			getent group isolate | grep -q "\b${USER}\b" 1>/dev/null || die "user not in \`isolate' group, cannot use zfs features"
+			id -Gn "$USER" | grep "isolate" 1>/dev/null || die "user not in \`isolate' group, cannot use zfs features"
 			zfs_run="yes"
 			zfs_template="$OPTARG"
 			;;
