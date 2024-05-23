@@ -92,14 +92,19 @@ Modifications to the underlying system root are of course permanent in template 
 See =isolate -h=:
 
 #+BEGIN_SRC
-spawn:                        /usr/local/bin/isolate [-e engine] [-t templatedir] [-1] [-2] [-n] [-p pwd] [-d dir_host:target_ctr] ... [command] [args] ...
-spawn:                        /usr/local/bin/isolate [-e engine] [-z zfs_template] [-1] [-2] [-n] [-p pwd] [-d dir_host:target_ctr] ... [command] [args] ...
-refresh available zfs clones: /usr/local/bin/isolate [-r template] [-f] [-s] [num_should_avail]
+spawn:                        ./isolate [-e engine] [-t templatedir] [-1] [-2] [-n] [-p pwd] [-d dir_host:target_ctr]... [-v env_name:env_value]... [command] [args] ...
+spawn:                        ./isolate [-e engine] [-z zfs_template] [-1] [-2] [-n] [-p pwd] [-d dir_host:target_ctr]... [-v env_name:env_value]... [command] [args] ...
+refresh available zfs clones: ./isolate [-r template] [-f] [-s] [num_should_avail]
   [!] refresh ALWAYS uses the latest snapshot on the dataset
 
 OPTIONS
          -e: engine: one of {bwrap, chroot, lxc}, defaults to bwrap
          -d: dirs to mount into the sandbox, mounts dir_host to target_ctr in the container
+         -u: uid [integer] to use as base uid. uid and the following 65535 uids are mapped to [0:65535] in the sandbox.
+         -g: gid [integer] to use as base gid. gid and the following 65535 gids are mapped to [0:65535] in the sandbox.
+             NOTE: when using -u or -g, you should align the ownership of the template to the range specified.
+         -i: ignore SIGINT, keep running. Current the workaround until signal passing into the guest is implemented.
+         -v: var:value to pass into the sandbox
          -p: pwd: switch to this directory on spawn. Defaults to /
          -1: bind X11 socket into guest
          -2: bind Pulseaudio socket into guest
@@ -107,6 +112,7 @@ OPTIONS
          -x: trace
          -f: regenerate ALL templates of given zfs template
          -s: skip generating new clones
+         -q: quiet: only print warnings and prompts
 
   add all users that should be able to use zfs features to the `isolate' group
 
@@ -115,12 +121,19 @@ ENVIRONMENT VARIABLES
                    $ROOTFS references the root of the isolated environment to be started
    POST_SPAWN_HOOK: command that is run after [command args] has completed in the isolated environment
                    $ROOTFS references the root of the isolated environment to be started
-   DISABLE_SECCOMP_WRAPPER: disable the bwrap seccomp wrapper that prevents IOCTL to host
+   DISABLE_SECCOMP_WRAPPER [=!'']: disable the bwrap seccomp wrapper that prevents IOCTL to host
+   LXC_NET_BR [=!'']: bridge to be used by LXC, defaults to br_vm
+   LXC_MAP_TUN [!='']: map /dev/net/tun into the container
+   LXC_CPU_QUOTA: percentage (1-100), this amount of CPU processing time will be available to the container. Default: 20
+   LXC_MEM_MB_QUOTA: memory available to guest, in MB
+   DEBUG_LXC_SPAWN [=!'']: if nonzero len, write lxc start log to /tmp/isolate_lxc_log
 
 SUPPORTED BY ENGINE
-  | engine | net | cmd+args | dirs | pwd | X11 | Pulseaudio |
-  |--------+-----+----------+------+-----+-----+------------|
-  | chroot | X   | X        |      |     |     |            |
-  | bwrap  | X   | X        | X    | X   | X   | X          |
-  | lxc    | X   | X        | X    |     |     |            |
-   #+END_SRC
+  | engine | env | {U/G}ID | net | cmd+args | dirs | pwd | X11 | Pulseaudio |
+  |--------+-----|---------------+----------+------|-----+-----+------------|
+  | chroot |     |         |  X  | X        |      |     |     |            |
+  | bwrap  |  X  |    *    |  X  | X        | X    | X   |  X  |     X      |
+  | lxc    |  X  |    X    |  X  | X        | X    | X   |     |            |
+
+  * this changes the uid in the container, which itself STILL RUNS AS UID 0!
+#+END_SRC
