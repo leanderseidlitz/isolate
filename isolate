@@ -139,10 +139,10 @@ refresh_zfs() {
 	zfs_template="$1"
 	zfs list "$zfs_template" 1>/dev/null || die "invalid zfs template $zfs_template"
 	snapshot="$(zfs list -t snapshot "$zfs_template" -S creation -H -o name | head -n 1)"
-	
+
 	local num_should_avail
 	[[ -z "${2:-}" ]] && [[ -z "${SKIPGENNEWZFS:-}" ]] && die "num_should_avail missing"
-	
+
 	local USEDFILE TEMPLATE_MOUNTPOINT FREEFILE ERRORFILE SIGNALFILE LOCKFILE
 	TEMPLATE_MOUNTPOINT="$(findmnt -d backward -f -n -oTARGET "$zfs_template")"
 	USEDFILE="$(dirname "$TEMPLATE_MOUNTPOINT")/$(basename "$zfs_template")_used"
@@ -196,13 +196,13 @@ refresh_zfs() {
 			einfo "skipping generation of new clones"
 			return
 		fi
-		
+
 		num_should_avail="$2"
 		# idiot proof the whole thing
 		[[ "$num_should_avail" =~ ^[0-9]+$ ]] || die "num_should_avail should be a num"
 		(( 10#$num_should_avail < 0 )) && die "num_should_avail cannot be negative"
 		(( 10#$num_should_avail > 100 )) && die "num_should_avail is a bit too large"
-		
+
 		if (( 10#$(wc -l < "$FREEFILE") < 10#$num_should_avail )); then
 			num_to_create=$(( 10#$num_should_avail - 10#$(wc -l < "$FREEFILE") ))
 			for i in $(seq 1 "$num_to_create"); do
@@ -222,7 +222,7 @@ consume_fresh_zfs_template_respawn() {
 	local zfs_template
 	zfs_template="$1"
 	zfs list "$zfs_template" 1>/dev/null || die "invalid zfs template $zfs_template"
-	
+
 	local USEDFILE TEMPLATE_MOUNTPOINT FREEFILE SIGNALFILE LOCKFILE
 	TEMPLATE_MOUNTPOINT="$(findmnt -d backward -f -n -oTARGET "$zfs_template")"
 	USEDFILE="$(dirname "$TEMPLATE_MOUNTPOINT")/$(basename "$zfs_template")_used"
@@ -234,7 +234,7 @@ consume_fresh_zfs_template_respawn() {
 	exec 11>"$LOCKFILE"
 	flock -x -w 3 11 || die "template mgmt lock unavailable"
 	(( 10#$(wc -l < "$FREEFILE") <= 0 )) && ( touch "$SIGNALFILE"; die "no free template clones available, spawn new clones before continuing" )
-	
+
 	to_use="$(head -n 1 "$FREEFILE")"
 	echo "$to_use" >> "$USEDFILE"
 
@@ -245,8 +245,8 @@ consume_fresh_zfs_template_respawn() {
 	rm "$tmpfile"
 
 	flock -u 11
-	exec 11<&- 
-	
+	exec 11<&-
+
 	to_use_mountpoint="$(findmnt -d backward -f -n -oTARGET "$to_use")"
 	[[ -z "${to_use_mountpoint}" ]] && die "template $to_use seems to be non-existent"
 	export ISOLATE_ZFSPREPAREDONE="yes"
@@ -378,7 +378,7 @@ lets_go_lxc() {
 	cat <<-EOF > "$LXC_CONF_TARGET"
 		lxc.include = /usr/share/lxc/config/common.conf
 		lxc.include = /usr/share/lxc/config/userns.conf
-		lxc.cgroup.devices.deny = a # Deny all access to devices		
+		lxc.cgroup.devices.deny = a # Deny all access to devices
 		lxc.idmap = u 0 ${UIDBASE:-0} 131072
 		lxc.idmap = g 0 ${GIDBASE:-0} 131072
 		lxc.rootfs.path = $rootfs
